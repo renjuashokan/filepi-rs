@@ -1,0 +1,3 @@
+[workspace]
+members = ["filepi-server", "syncfusion-fm-backend"]
+resolver = "2"
