@@ -1,3 +1,4 @@
+mod config;
 mod handlers;
 mod middleware;
 mod models;
@@ -19,10 +20,10 @@ use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::ServeDir;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
+use config::Config;
 use handlers::files;
 use handlers::health;
 use middleware::logging::logging_middleware;
-use syncfusion_fm_backend::config::{self, Config};
 
 #[tokio::main]
 async fn main() {
