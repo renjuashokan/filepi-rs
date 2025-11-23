@@ -269,6 +269,7 @@ dependencies = [
  "iana-time-zone",
  "js-sys",
  "num-traits",
+ "serde",
  "wasm-bindgen",
  "windows-link",
 ]
@@ -1284,6 +1285,7 @@ checksum = "0bf256ce5efdfa370213c1dabab5935a12e49f2c58d15e9eac2870d3b4f27263"
 name = "syncfusion-fm-backend"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "dotenvy",
  "serde",
 ]

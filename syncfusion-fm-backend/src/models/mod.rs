@@ -1,5 +1,2 @@
-pub mod request;
-pub mod response;
-
-pub use request::*;
-pub use response::*;
+pub mod syncfusion_model;
+pub use syncfusion_model::*;
