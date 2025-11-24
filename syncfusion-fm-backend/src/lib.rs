@@ -82,7 +82,11 @@ fn handle_read(request: &FileManagerDirectoryContent, root_dir: &PathBuf) -> Fil
                         .map(Into::into)
                         .or_else(|| Some(chrono::Utc::now())),
                     has_child: is_dir,
-                    filter_path: if relative_path.is_empty() { Some("/".to_string()) } else { Some(format!("/{}/", relative_path)) },
+                    filter_path: if relative_path.is_empty() {
+                        Some("/".to_string())
+                    } else {
+                        Some(format!("/{}/", relative_path))
+                    },
                     file_type: Some(if is_dir { "".to_string() } else { file_type }),
                     permission: Some(get_default_permission()),
                     path: None,
@@ -132,7 +136,11 @@ fn handle_read(request: &FileManagerDirectoryContent, root_dir: &PathBuf) -> Fil
                 .map(Into::into)
                 .or_else(|| Some(chrono::Utc::now())),
             has_child: !files.is_empty(),
-            filter_path: if relative_path.is_empty() { Some("".to_string()) } else { Some(format!("/{}/", relative_path)) },
+            filter_path: if relative_path.is_empty() {
+                Some("".to_string())
+            } else {
+                Some(format!("/{}/", relative_path))
+            },
             file_type: Some("".to_string()),
             permission: Some(get_default_permission()),
             path: None,
@@ -500,6 +508,14 @@ fn create_error_response(code: &str, message: &str) -> FileManagerResponse {
     }
 }
 
+pub fn validate_path(root_dir: &PathBuf, relative_path: &str) -> Result<PathBuf, String> {
+    let full_path = root_dir.join(relative_path);
+    if !is_safe_path(&full_path, root_dir) {
+        return Err("Invalid path".to_string());
+    }
+    Ok(full_path)
+}
+
 fn is_safe_path(path: &PathBuf, root: &PathBuf) -> bool {
     match path.canonicalize() {
         Ok(canonical_path) => match root.canonicalize() {
@@ -527,7 +543,7 @@ fn get_file_extension(filename: &str) -> String {
     std::path::Path::new(filename)
         .extension()
         .and_then(|ext| ext.to_str())
-        .map(|s| s.to_ascii_lowercase())
+        .map(|s| format!(".{}", s.to_ascii_lowercase()))
         .unwrap_or_else(|| "file".to_string())
 }
 

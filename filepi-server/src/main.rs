@@ -65,6 +65,9 @@ async fn main() {
             "/syncfusion/fileoperations",
             post(handlers::syncfusion::file_operations),
         )
+        .route("/syncfusion/download", post(handlers::syncfusion::download))
+        .route("/syncfusion/upload", post(handlers::syncfusion::upload))
+        .route("/syncfusion/getimage", get(handlers::syncfusion::get_image))
         .with_state(shared_config.clone());
 
     // Check if webdeploy directory exists

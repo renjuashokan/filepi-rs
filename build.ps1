@@ -146,10 +146,3 @@ switch ($Type) {
 }
 
 Write-Success "Build process completed!"
-
-Write-Host ""
-Write-Host "📁 Generated files:"
-if (Test-Path ".\filepi.exe") { Write-Host "  - Rust executable: .\filepi.exe" }
-if (Test-Path "target\release\filepi.exe") { Write-Host "  - Rust executable: target\release\filepi.exe" }
-if (Test-Path "target\debug\filepi.exe") { Write-Host "  - Rust executable: target\debug\filepi.exe" }
-if (Test-Path "webdeploy") { Write-Host "  - Blazor UI: .\webdeploy\" }
