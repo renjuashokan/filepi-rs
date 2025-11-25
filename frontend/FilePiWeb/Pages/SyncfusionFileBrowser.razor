@@ -12,12 +12,12 @@
 @layout FilePiWeb.Layout.EmptyLayout
 
 <SfFileManager TValue="FileManagerDirectoryContent" Height="100%" Width="100%">
-    <FileManagerEvents TValue="FileManagerDirectoryContent" ></FileManagerEvents>
     <FileManagerAjaxSettings Url="/api/v1/syncfusion/fileoperations"
                              DownloadUrl="/api/v1/syncfusion/download"
                              UploadUrl="/api/v1/syncfusion/upload"
                              GetImageUrl="/api/v1/syncfusion/getimage">
     </FileManagerAjaxSettings>
+    <FileManagerEvents TValue="FileManagerDirectoryContent" ></FileManagerEvents>
     <FileManagerNavigationPaneSettings Visible="true" />
 </SfFileManager>
 

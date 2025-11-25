@@ -1,7 +1,7 @@
 use axum::{
     Json,
     body::Body,
-    extract::{Query, State},
+    extract::{Form, Multipart, Query, State},
     http::{StatusCode, header},
     response::IntoResponse,
 };
@@ -13,6 +13,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::fs::File;
+use tokio::io::AsyncWriteExt;
 use tokio_util::io::ReaderStream;
 use tracing::{debug, error, info};
 
@@ -85,11 +86,23 @@ pub async fn get_image(
     ))
 }
 
+#[derive(Deserialize)]
+pub struct DownloadForm {
+    #[serde(rename = "downloadInput")]
+    pub download_input: String,
+}
+
 pub async fn download(
     State(config): State<Arc<Config>>,
-    Json(args): Json<FileManagerDirectoryContent>,
+    Form(form): Form<DownloadForm>,
 ) -> Result<impl IntoResponse, AppError> {
     info!("Syncfusion Download");
+
+    let args: FileManagerDirectoryContent =
+        serde_json::from_str(&form.download_input).map_err(|e| {
+            error!("Failed to parse downloadInput: {}", e);
+            AppError::BadRequest("Invalid download input".to_string())
+        })?;
 
     let path_str = args.path.as_deref().unwrap_or("/");
     let names = args.names.as_ref().ok_or(AppError::BadRequest(
@@ -150,73 +163,96 @@ pub async fn download(
     ))
 }
 
-#[derive(TryFromMultipart)]
-pub struct SyncfusionUploadForm {
-    pub path: String,
-    pub action: String,
-    #[form_data(field_name = "uploadFiles")]
-    pub upload_files: Vec<FieldData<Bytes>>,
+#[derive(Deserialize)]
+pub struct UploadParams {
+    #[serde(default)]
+    pub path: Option<String>,
+    #[serde(default)]
+    pub action: Option<String>,
 }
 
 pub async fn upload(
     State(config): State<Arc<Config>>,
-    TypedMultipart(form): TypedMultipart<SyncfusionUploadForm>,
+    Query(params): Query<UploadParams>,
+    mut multipart: Multipart,
 ) -> Result<impl IntoResponse, AppError> {
-    info!("Syncfusion Upload to path: {}", form.path);
+    info!("Syncfusion Upload2 (Streaming)");
+    info!("Query params - path: {:?}, action: {:?}", params.path, params.action);
 
-    let relative_path = form.path.trim_start_matches('/');
     let root_dir = PathBuf::from(&config.root_dir);
+    let mut current_path = params.path.unwrap_or_else(|| String::from("/"));
 
-    // We validate the directory path, not a file path
-    let _upload_dir = root_dir.join(relative_path);
+    while let Some(field) = multipart.next_field().await.map_err(|e| {
+        error!("Failed to get next field: {}", e);
+        AppError::BadRequest(format!("Multipart error: {}", e))
+    })? {
+        let name = field.name().unwrap_or("").to_string();
+        let content_type = field.content_type().unwrap_or("").to_string();
+        info!("Multipart field: name='{}', content_type='{}'", name, content_type);
 
-    // Use validate_path logic manually or adapt it, since validate_path checks existence?
-    // validate_path in lib.rs checks is_safe_path but DOES NOT check existence (it returns path).
-    // Wait, my implementation of validate_path only checks is_safe_path.
+        if name == "path" {
+            if let Ok(val) = field.text().await {
+                current_path = val.clone();
+                info!("Upload path set to: '{}'", current_path);
+            }
+        } else if name == "action" {
+             if let Ok(val) = field.text().await {
+                info!("Multipart action: '{}'", val);
+            }
+        } else if name == "uploadFiles" {
+            let file_name = field.file_name().unwrap_or("uploaded_file").to_string();
+            info!("Processing file field: '{}'. Current path context: '{}'", file_name, current_path);
 
-    let canonical_upload_dir = syncfusion_fm_backend::validate_path(&root_dir, relative_path)
-        .map_err(|_| AppError::BadRequest("Invalid upload path".to_string()))?;
+            let relative_path = current_path.trim_start_matches('/');
+            info!("Root dir: {:?}, Relative path: '{}'", root_dir, relative_path);
 
-    // Ensure upload directory exists
-    if !canonical_upload_dir.exists() {
-        std::fs::create_dir_all(&canonical_upload_dir).map_err(|e| {
-            error!("Failed to create upload directory: {}", e);
-            AppError::InternalError(format!("Failed to create directory: {}", e))
-        })?;
-    }
+            let canonical_upload_dir = syncfusion_fm_backend::validate_path(&root_dir, relative_path)
+                .map_err(|_| {
+                    error!("Path validation failed for relative path: '{}'", relative_path);
+                    AppError::BadRequest("Invalid upload path".to_string())
+                })?;
+            
+            info!("Canonical upload dir: {:?}", canonical_upload_dir);
 
-    for file_data in form.upload_files {
-        let file_name = file_data
-            .metadata
-            .file_name
-            .unwrap_or_else(|| "uploaded_file".to_string());
-        let file_path = canonical_upload_dir.join(&file_name);
+            if !canonical_upload_dir.exists() {
+                info!("Creating directory: {:?}", canonical_upload_dir);
+                tokio::fs::create_dir_all(&canonical_upload_dir).await.map_err(|e| {
+                    error!("Failed to create upload directory: {}", e);
+                    AppError::InternalError(format!("Failed to create directory: {}", e))
+                })?;
+            }
 
-        // Validate file path is safe too (should be if dir is safe and name has no separators, but good to check)
-        if !syncfusion_fm_backend::validate_path(
-            &root_dir,
-            &file_path
-                .to_string_lossy()
-                .replace(&root_dir.to_string_lossy().to_string(), ""),
-        )
-        .is_ok()
-        {
-            // This check is tricky because of absolute paths.
-            // Let's just trust canonical_upload_dir join file_name if file_name is simple.
-            // Better: check if file_path starts with canonical_upload_dir
+            let file_path = canonical_upload_dir.join(&file_name);
+            info!("Target file path: {:?}", file_path);
+
+            info!("Saving file to: {:?}", file_path);
+
+            let mut file = File::create(&file_path).await.map_err(|e| {
+                error!("Failed to create file: {}", e);
+                AppError::InternalError(format!("Failed to create file: {}", e))
+            })?;
+
+            let mut stream = field;
+            let mut total_bytes = 0;
+            while let Some(chunk) = stream.chunk().await.map_err(|e| {
+                error!("Failed to read chunk: {}", e);
+                AppError::InternalError(format!("Failed to read chunk: {}", e))
+            })? {
+                total_bytes += chunk.len();
+                file.write_all(&chunk).await.map_err(|e| {
+                    error!("Failed to write chunk: {}", e);
+                    AppError::InternalError(format!("Failed to write chunk: {}", e))
+                })?;
+            }
+            
+            file.flush().await.map_err(|e| {
+                 error!("Failed to flush file: {}", e);
+                 AppError::InternalError(format!("Failed to flush file: {}", e))
+            })?;
+            info!("File saved successfully. Total bytes: {}", total_bytes);
+        } else {
+            info!("Ignoring field: name='{}'", name);
         }
-
-        info!("Saving file: {:?}", file_path);
-
-        let mut file = std::fs::File::create(&file_path).map_err(|e| {
-            error!("Failed to create file: {}", e);
-            AppError::InternalError(format!("Failed to create file: {}", e))
-        })?;
-
-        file.write_all(&file_data.contents).map_err(|e| {
-            error!("Failed to write file content: {}", e);
-            AppError::InternalError(format!("Failed to write file content: {}", e))
-        })?;
     }
 
     Ok(StatusCode::OK)

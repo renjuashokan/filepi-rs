@@ -24,3 +24,7 @@ target
 
 # Blazor deployed files
 webdeploy/
+
+temp-publish/
+logs/
+working-cs
